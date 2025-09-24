@@ -15,16 +15,19 @@ const mockProvider = new Pact({
 describe('API Pact test', () => {
   describe('retrieving a product', () => {
     test('ID 10 exists', async () => {
+      // Arrange
       const expectedProduct = {
         id: '10',
         type: 'CREDIT_CARD',
-        name: '28 Degrees',
-        version: 'v1'
+        name: '28 Degrees'
       };
+
+      // Uncomment to see this fail
+      // const expectedProduct = { id: '10', type: 'CREDIT_CARD', name: '28 Degrees', price: 30.0, newField: 22}
 
       mockProvider
         .given('a product with ID 10 exists')
-        .uponReceiving('a request to get product ID 10')
+        .uponReceiving('a request to get a product')
         .withRequest({
           method: 'GET',
           path: '/product/10',
@@ -39,57 +42,52 @@ describe('API Pact test', () => {
           },
           body: like(expectedProduct)
         });
-
       return mockProvider.executeTest(async (mockserver) => {
+        // Act
         const api = new API(mockserver.url);
         const product = await api.getProduct('10');
+
+        // Assert - did we get the expected response
         expect(product).toStrictEqual(new Product(expectedProduct));
         return;
       });
     });
 
-    test('ID 11 exists', async () => {
-      const expectedProduct = {
-        id: '11',
-        type: 'PERSONAL_LOAN',
-        name: 'MyFlexiPay',
-        version: 'v2'
-      };
+    test('product does not exist', async () => {
+      // set up Pact interactions
 
       mockProvider
-        .given('a product with ID 11 exists')
-        .uponReceiving('a request to get product ID 11')
+        .given('a product with ID 12 does not exist')
+        .uponReceiving('a request to get a product')
         .withRequest({
           method: 'GET',
-          path: '/product/11',
+          path: '/product/12',
           headers: {
             Authorization: like('Bearer 2019-01-14T11:34:18.045Z')
           }
         })
         .willRespondWith({
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json; charset=utf-8'
-          },
-          body: like(expectedProduct)
+          status: 404
         });
-
       return mockProvider.executeTest(async (mockserver) => {
         const api = new API(mockserver.url);
-        const product = await api.getProduct('11');
-        expect(product).toStrictEqual(new Product(expectedProduct));
+
+        // make request to Pact mock server
+        await expect(api.getProduct('12')).rejects.toThrow(
+          'Request failed with status code 404'
+        );
         return;
       });
     });
   });
-
   describe('retrieving products', () => {
-    test('products exist', async () => {
-      const expectedProducts = [
-        { id: '09', type: 'CREDIT_CARD', name: 'Gem Visa', version: 'v1' },
-        { id: '10', type: 'CREDIT_CARD', name: '28 Degrees', version: 'v1' },
-        { id: '11', type: 'PERSONAL_LOAN', name: 'MyFlexiPay', version: 'v2' }
-      ];
+    test('products exists', async () => {
+      // set up Pact interactions
+      const expectedProduct = {
+        id: '10',
+        type: 'CREDIT_CARD',
+        name: '28 Degrees'
+      };
 
       mockProvider
         .given('products exist')
@@ -106,14 +104,16 @@ describe('API Pact test', () => {
           headers: {
             'Content-Type': 'application/json; charset=utf-8'
           },
-          body: eachLike(expectedProducts[0])
+          body: eachLike(expectedProduct)
         });
-
       return mockProvider.executeTest(async (mockserver) => {
         const api = new API(mockserver.url);
+
+        // make request to Pact mock server
         const products = await api.getAllProducts();
-        console.log('Received products:', products);
-        expect(products).toStrictEqual(expectedProducts.map((p) => new Product(p)));
+
+        // assert that we got the expected response
+        expect(products).toStrictEqual([new Product(expectedProduct)]);
         return;
       });
     });
