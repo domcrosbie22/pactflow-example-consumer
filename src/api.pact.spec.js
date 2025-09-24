@@ -1,122 +1,121 @@
-import path from 'path';
-import { Pact } from '@pact-foundation/pact';
-import API from './api';
+import { PactV3 } from '@pact-foundation/pact';
+import { API } from './api';
+import { MatchersV3 } from '@pact-foundation/pact';
 import { Product } from './product';
+const { eachLike, like } = MatchersV3;
+const Pact = PactV3;
 
-describe('Pact Tests for API', () => {
-  const provider = new Pact({
-    consumer: 'pactflow-example-consumer',
-    provider: 'pactflow-example-provider',
-    port: 1234,
-    log: path.resolve(process.cwd(), 'logs', 'pact.log'),
-    dir: path.resolve(process.cwd(), 'pacts'),
-    logLevel: 'info',
-    spec: 2
+const mockProvider = new Pact({
+  consumer: 'pactflow-example-consumer',
+  provider: process.env.PACT_PROVIDER
+    ? process.env.PACT_PROVIDER
+    : 'pactflow-example-provider'
+});
+
+describe('API Pact test', () => {
+  describe('retrieving a product', () => {
+    test('ID 10 exists', async () => {
+      // Arrange
+      const expectedProduct = {
+        id: '10',
+        type: 'CREDIT_CARD',
+        name: '28 Degrees'
+      };
+
+      // Uncomment to see this fail
+      // const expectedProduct = { id: '10', type: 'CREDIT_CARD', name: '28 Degrees', price: 30.0, newField: 22}
+
+      mockProvider
+        .given('a product with ID 10 exists')
+        .uponReceiving('a request to get a product')
+        .withRequest({
+          method: 'GET',
+          path: '/product/10',
+          headers: {
+            Authorization: like('Bearer 2019-01-14T11:34:18.045Z')
+          }
+        })
+        .willRespondWith({
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8'
+          },
+          body: like(expectedProduct)
+        });
+      return mockProvider.executeTest(async (mockserver) => {
+        // Act
+        const api = new API(mockserver.url);
+        const product = await api.getProduct('10');
+
+        // Assert - did we get the expected response
+        expect(product).toStrictEqual(new Product(expectedProduct));
+        return;
+      });
+    });
+
+    test('product does not exist', async () => {
+      // set up Pact interactions
+
+      mockProvider
+        .given('a product with ID 11 does not exist')
+        .uponReceiving('a request to get a product')
+        .withRequest({
+          method: 'GET',
+          path: '/product/11',
+          headers: {
+            Authorization: like('Bearer 2019-01-14T11:34:18.045Z')
+          }
+        })
+        .willRespondWith({
+          status: 404
+        });
+      return mockProvider.executeTest(async (mockserver) => {
+        const api = new API(mockserver.url);
+
+        // make request to Pact mock server
+        await expect(api.getProduct('11')).rejects.toThrow(
+          'Request failed with status code 404'
+        );
+        return;
+      });
+    });
   });
+  describe('retrieving products', () => {
+    test('products exists', async () => {
+      // set up Pact interactions
+      const expectedProduct = {
+        id: '10',
+        type: 'CREDIT_CARD',
+        name: '28 Degrees'
+      };
 
-  beforeAll(() => provider.setup());
-  afterAll(() => provider.finalize());
-  afterEach(() => provider.verify());
-
-  describe('GET /products', () => {
-    const expectedProducts = [
-      { id: '10', name: '28 Degrees', type: 'CREDIT_CARD' },
-      { id: '11', name: 'Low Rate', type: 'DEBIT_CARD' }
-    ];
-
-    beforeEach(() => {
-      return provider.addInteraction({
-        state: 'products exist',
-        uponReceiving: 'a request for all products',
-        withRequest: {
+      mockProvider
+        .given('products exist')
+        .uponReceiving('a request to get all products')
+        .withRequest({
           method: 'GET',
           path: '/products',
           headers: {
-            Authorization: 'Bearer 2019-01-14T11:34:18.045Z'
+            Authorization: like('Bearer 2019-01-14T11:34:18.045Z')
           }
-        },
-        willRespondWith: {
+        })
+        .willRespondWith({
           status: 200,
-          headers: { 'Content-Type': 'application/json; charset=utf-8' },
-          body: expectedProducts,
-          matchingRules: {
-            body: {
-              '$': {
-                matchers: [{ match: 'type', min: 1 }]
-              }
-            }
-          }
-        }
-      });
-    });
-
-    it('should fetch all products', async () => {
-      const api = new API('http://localhost:1234');
-      const products = await api.getAllProducts();
-      expect(products).toEqual(expectedProducts.map((p) => new Product(p)));
-    });
-  });
-
-  describe('GET /product/:id', () => {
-    const productId = '10';
-    const expectedProduct = { id: productId, name: '28 Degrees', type: 'CREDIT_CARD' };
-
-    beforeEach(() => {
-      return provider.addInteraction({
-        state: `a product with ID ${productId} exists`,
-        uponReceiving: 'a request for a product by ID',
-        withRequest: {
-          method: 'GET',
-          path: `/product/${productId}`,
           headers: {
-            Authorization: 'Bearer 2019-01-14T11:34:18.045Z'
-          }
-        },
-        willRespondWith: {
-          status: 200,
-          headers: { 'Content-Type': 'application/json; charset=utf-8' },
-          body: expectedProduct,
-          matchingRules: {
-            body: {
-              '$': {
-                matchers: [{ match: 'type' }]
-              }
-            }
-          }
-        }
+            'Content-Type': 'application/json; charset=utf-8'
+          },
+          body: eachLike(expectedProduct)
+        });
+      return mockProvider.executeTest(async (mockserver) => {
+        const api = new API(mockserver.url);
+
+        // make request to Pact mock server
+        const products = await api.getAllProducts();
+
+        // assert that we got the expected response
+        expect(products).toStrictEqual([new Product(expectedProduct)]);
+        return;
       });
-    });
-
-    it('should fetch a product by ID', async () => {
-      const api = new API('http://localhost:1234');
-      const product = await api.getProduct(productId);
-      expect(product).toEqual(new Product(expectedProduct));
-    });
-  });
-
-  describe('GET /product/:id - Not Found', () => {
-    const productId = '11';
-
-    beforeEach(() => {
-      return provider.addInteraction({
-        state: `a product with ID ${productId} does not exist`,
-        uponReceiving: 'a request for a non-existent product by ID',
-        withRequest: {
-          method: 'GET',
-          path: `/product/${productId}`,
-          headers: {
-            Authorization: 'Bearer 2019-01-14T11:34:18.045Z'
-          }
-        },
-        willRespondWith: {
-          status: 404
-        }
-      });
-    });
-
-    it('should return 404 for a non-existent product', async () => {
-      const api = new API('http://localhost:1234');
-      await expect(api.getProduct(productId)).rejects.toThrow();
     });
   });
 });
